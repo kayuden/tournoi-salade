@@ -16,7 +16,7 @@
     .card .content{padding:12px 14px}
     label{font-size:13px;opacity:.9}
     input,select,button,textarea{font:inherit}
-    input[type=text]{width:100%;padding:10px 12px;background:#0b1120;border:1px solid #0b1020;color:var(--text);border-radius:10px}
+    input[type=text], input[type=number]{width:100%;padding:10px 12px;background:#0b1120;border:1px solid #0b1020;color:var(--text);border-radius:10px}
     select{padding:10px 12px;background:#0b1120;border:1px solid #0b1020;color:var(--text);border-radius:10px}
     button{cursor:pointer;border:1px solid #0b1020;border-radius:12px;padding:10px 14px;background:#111827;color:var(--text);}
     button.primary{background:linear-gradient(135deg,#0891b2,#22d3ee);color:#001219;border:none}
@@ -41,6 +41,7 @@
     .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
     .note{font-size:12px;opacity:.85}
     .hr{height:1px;background:#0b1020;margin:8px 0}
+    .label-single{padding:2px 6px;border:1px solid #234;border-radius:6px;font-size:11px;margin-left:6px}
   </style>
 </head>
 <body>
@@ -54,8 +55,8 @@
         <div class="row">
           <input id="name" type="text" placeholder="Nom ou pseudo" />
           <select id="color">
-            <option value="orange">Compétiteur/Avancé</option>
-            <option value="green">Loisir/Débutant</option>
+            <option value="orange">Étiquette ORANGE (compétiteur)</option>
+            <option value="green">Étiquette VERTE (loisir/débutant)</option>
           </select>
           <button id="add">Ajouter</button>
         </div>
@@ -78,10 +79,16 @@
             <input id="rounds" type="number" min="1" max="8" value="4" />
           </div>
           <div>
-            <label>Alternance</label>
-            <div>
-              <span class="tiny">Tour impair : mixte (orange+vert vs orange+vert) · Tour pair : homogène (OO / VV)</span>
-            </div>
+            <label>Terrains maximum (1–7)</label>
+            <input id="maxcourts" type="number" min="1" max="7" value="7" />
+          </div>
+        </div>
+        <div class="grid-2" style="margin-top:8px">
+          <div>
+            <label><input id="singles" type="checkbox" /> Autoriser les matchs de <b>simple</b> pour compléter</label>
+          </div>
+          <div>
+            <span class="tiny">Tour impair : mixte (O+V vs O+V) · Tour pair : homogène (OO / VV)<br/>Si pas assez de joueurs d'une couleur en homogène, on complète en <b>mixte</b>.</span>
           </div>
         </div>
         <div class="toolbar" style="margin-top:10px">
@@ -89,7 +96,7 @@
           <button id="reshuffle">🔁 Re-mélanger</button>
           <button id="export">📱 Ajouter à l'écran d'accueil (PWA)</button>
         </div>
-        <div class="note">Contrainte respectée : personne n'a le <b>même coéquipier</b> plus d'une fois dans la séance.</div>
+        <div class="note">Contrainte respectée : personne n'a le <b>même coéquipier</b> plus d'une fois dans la séance. Limite : <b>7 terrains</b> (28 joueurs en double).</div>
       </div>
     </section>
 
@@ -106,8 +113,8 @@
         <ol>
           <li>Ajoutez les noms et leur couleur (orange/vert).</li>
           <li>Appuyez sur <b>Générer</b>. Les tours alternent : mixte, homogène, mixte, homogène.</li>
-          <li>Si les effectifs sont impairs, l'appli crée des <i>byes</i> automatiques et les fait tourner.</li>
-          <li>Si aucune solution parfaite n'est trouvée, on relâche minimalement la contrainte sur 1 duo (rare), vous verrez un ⚠️.</li>
+          <li>Effectifs impairs → <i>byes</i> équitables, ou <b>simples</b> si l'option est cochée.</li>
+          <li>Manque d'une couleur en homogène → on bascule ce qu'il faut en <b>mixte</b> pour remplir les terrains.</li>
         </ol>
       </div>
     </section>
@@ -143,13 +150,6 @@
   function addHist(a,b){ const k=key(a,b); state.history.set(k,(state.history.get(k)||0)+1); }
   function teamedBefore(a,b){ return (state.history.get(key(a,b))||0)>0; }
 
-  function nextByeRotation(list){ // Return set of names that should sit out to keep numbers multiples of 4
-    // Track per-player bye counts to rotate fairly
-    const counts = state.byesCount; list.forEach(n=>{ if(!counts.has(n)) counts.set(n,0); });
-    const sorted = [...list].sort((a,b)=> (counts.get(a)||0)-(counts.get(b)||0));
-    return sorted[0];
-  }
-
   // Backtracking pair builder with no same teammate in session
   function makePairsSamePool(pool){
     pool = [...pool];
@@ -159,13 +159,12 @@
     pool = shuffle(pool);
 
     function backtrack(){
-      if(used.size===pool.length) return true;
-      // pick first unused
+      // stop when we can't add a full pair
+      if(used.size >= pool.length-1) return true;
       const a = pool.find(x=>!used.has(x));
+      if(!a) return true;
       used.add(a);
-      // try partners
       const candidates = pool.filter(x=>!used.has(x) && !teamedBefore(a,x));
-      // If stuck, allow one relaxed partner later
       const order = candidates.length? candidates: pool.filter(x=>!used.has(x));
       for(const b of shuffle(order)){
         used.add(b); pairs.push([a,b]);
@@ -175,8 +174,8 @@
       used.delete(a);
       return false;
     }
-    const ok = backtrack();
-    return {pairs, ok};
+    backtrack();
+    return {pairs, ok:true};
   }
 
   function makePairsMixed(oranges, greens){
@@ -186,10 +185,9 @@
     const pairs=[];
 
     function backtrack(){
-      if(usedA.size===Math.min(A.length,B.length)*1 && usedB.size===Math.min(A.length,B.length)*1) return true;
+      if(usedA.size===Math.min(A.length,B.length) && usedB.size===Math.min(A.length,B.length)) return true;
       const a = A.find(x=>!usedA.has(x));
       if(!a) return true;
-      // choose b not used and not previously teamed
       const candidates = B.filter(y=>!usedB.has(y) && !teamedBefore(a,y));
       const order = candidates.length? candidates: B.filter(y=>!usedB.has(y));
       for(const b of shuffle(order)){
@@ -199,24 +197,47 @@
       }
       return false;
     }
-    const ok = backtrack();
-    return {pairs, ok};
+    backtrack();
+    return {pairs, ok:true};
   }
 
-  function groupIntoCourts(pairs){
-    // if odd number of pairs, last pair becomes bye
-    const courts=[]; const byes=[];
+  function assembleCourtsFromPairs(pairs, allowSingles, maxCourts){
+    const courts=[]; const byes=[]; let ok=true;
     let P=[...pairs];
-    if(P.length%2===1){ byes.push(...P.pop()); }
-    for(let i=0;i<P.length;i+=2){ courts.push([P[i], P[i+1]]); }
-    return {courts, byes};
+
+    // If odd number of pairs, use one pair as a singles court if allowed
+    if(P.length%2===1){
+      const byeOrSingle = P.shift();
+      if(allowSingles && courts.length<maxCourts){
+        courts.push([[byeOrSingle[0]],[byeOrSingle[1]]]);
+      } else {
+        byes.push(...byeOrSingle);
+      }
+    }
+    for(let i=0;i<P.length && courts.length<maxCourts;i+=2){
+      courts.push([P[i], P[i+1]]);
+    }
+    // leftover pairs beyond max courts become byes
+    for(let j = courts.length*2; j < P.length; j++){
+      byes.push(...P[j]);
+    }
+    return {courts, byes, ok};
   }
 
-  function drawOnce(totalRounds){
+  function mixFromTwoPairs(pairO, pairV){
+    // try two cross options; respect teammate history if possible
+    const [o1,o2]=pairO, [v1,v2]=pairV;
+    const options = [ [[o1,v1],[o2,v2]], [[o1,v2],[o2,v1]] ];
+    for(const opt of options){ if(!teamedBefore(...opt[0]) && !teamedBefore(...opt[1])) return {teams:opt, ok:true}; }
+    // fallback
+    return {teams:options[0], ok:false};
+  }
+
+  function drawOnce(totalRounds, maxCourts, allowSingles){
     const oranges = state.players.filter(p=>p.color==='orange').map(p=>p.name);
     const greens  = state.players.filter(p=>p.color==='green').map(p=>p.name);
 
-    if(oranges.length+greens.length < 4){ return {error:'Il faut au moins 4 joueurs.'}; }
+    if(oranges.length+greens.length < 2){ return {error:'Il faut au moins 2 joueurs.'}; }
 
     // reset session history & accumulate results
     state.history = new Map();
@@ -227,40 +248,55 @@
       let round = { mode, courts:[], byes:[], ok:true };
 
       if(mode==='mixed'){
-        // Ensure multiple of 4 players used => min(oranges,greens) must be even
-        let O=[...oranges], G=[...greens];
-        const pairsObj = makePairsMixed(O,G);
-        let pairs = pairsObj.pairs; round.ok = pairsObj.ok;
-        // If odd, move the fairest bye pair (2 players sit out)
-        if(pairs.length%2===1){
-          // choose a pair containing the least-benched players
-          const score = pr=> (state.byesCount.get(pr[0])||0)+(state.byesCount.get(pr[1])||0);
-          pairs.sort((a,b)=>score(a)-score(b));
-          const byePair = pairs.shift();
-          round.byes.push(...byePair);
-          byePair.forEach(n=> state.byesCount.set(n,(state.byesCount.get(n)||0)+1));
-        }
-        const grouped = groupIntoCourts(pairs);
-        round.courts = grouped.courts; round.byes.push(...grouped.byes);
-        // update history
-        round.courts.forEach(ct=>{ addHist(ct[0][0], ct[0][1]); addHist(ct[1][0], ct[1][1]); });
+        const res = makePairsMixed(oranges,greens);
+        let pairs = res.pairs; round.ok = res.ok;
+
+        const grouped = assembleCourtsFromPairs(pairs, allowSingles, maxCourts);
+        round.courts = grouped.courts; round.byes.push(...grouped.byes); round.ok = round.ok && grouped.ok;
+
       } else {
-        // homogeneous: OO and VV, each grouped separately into courts
-        const Ores = makePairsSamePool(oranges);
-        const Vres = makePairsSamePool(greens);
-        round.ok = Ores.ok && Vres.ok;
+        // Homogène, mais si pas assez pour faire des terrains complets, on mixe ce qu'il faut
+        let Opairs = makePairsSamePool(oranges).pairs;
+        let Vpairs = makePairsSamePool(greens).pairs;
 
-        // handle odd pairs by sending one pair to bye per color if needed
-        let Opairs = Ores.pairs, Vpairs = Vres.pairs; const byes=[];
-        if(Opairs.length%2===1){ const bye = Opairs.pop(); byes.push(...bye); bye.forEach(n=> state.byesCount.set(n,(state.byesCount.get(n)||0)+1)); }
-        if(Vpairs.length%2===1){ const bye = Vpairs.pop(); byes.push(...bye); bye.forEach(n=> state.byesCount.set(n,(state.byesCount.get(n)||0)+1)); }
+        // D'abord, remplir en pur OO et VV
+        while(Opairs.length>=2 && round.courts.length<maxCourts){
+          round.courts.push([Opairs.shift(), Opairs.shift()]);
+          // hist
+          const last = round.courts[round.courts.length-1]; addHist(last[0][0],last[0][1]); addHist(last[1][0],last[1][1]);
+        }
+        while(Vpairs.length>=2 && round.courts.length<maxCourts){
+          round.courts.push([Vpairs.shift(), Vpairs.shift()]);
+          const last = round.courts[round.courts.length-1]; addHist(last[0][0],last[0][1]); addHist(last[1][0],last[1][1]);
+        }
 
-        const Ocourts = groupIntoCourts(Opairs).courts;
-        const Vcourts = groupIntoCourts(Vpairs).courts;
-        round.courts = [...Ocourts, ...Vcourts];
-        round.byes = byes;
-        round.courts.forEach(ct=>{ addHist(ct[0][0], ct[0][1]); addHist(ct[1][0], ct[1][1]); });
+        // Ensuite, si on peut compléter en mixte avec les paires restantes
+        while(Opairs.length>=1 && Vpairs.length>=1 && round.courts.length<maxCourts){
+          const O = Opairs.shift(); const V = Vpairs.shift();
+          const m = mixFromTwoPairs(O,V);
+          round.ok = round.ok && m.ok;
+          round.courts.push(m.teams);
+          addHist(m.teams[0][0], m.teams[0][1]);
+          addHist(m.teams[1][0], m.teams[1][1]);
+        }
+
+        // Traiter les paires solitaires restantes : simples si autorisé, sinon repos
+        const postO = assembleCourtsFromPairs(Opairs, allowSingles, maxCourts - round.courts.length);
+        round.courts.push(...postO.courts);
+        round.byes.push(...postO.byes);
+        round.ok = round.ok && postO.ok;
+        const postV = assembleCourtsFromPairs(Vpairs, allowSingles, maxCourts - round.courts.length);
+        round.courts.push(...postV.courts);
+        round.byes.push(...postV.byes);
+        round.ok = round.ok && postV.ok;
       }
+
+      // Enregistrer l'historique des coéquipiers pour tous les terrains ajoutés ce tour
+      round.courts.forEach(ct=>{
+        // ct est [[a,b],[c,d]] pour double ou [[a],[b]] pour simple
+        if(ct[0].length===2) addHist(ct[0][0], ct[0][1]);
+        if(ct[1].length===2) addHist(ct[1][0], ct[1][1]);
+      });
 
       rounds.push(round);
     }
@@ -281,7 +317,8 @@
 
       rd.courts.forEach((ct, cidx)=>{
         const cv = document.createElement('div'); cv.className='court';
-        cv.innerHTML = `<div class="tiny">Terrain ${cidx+1}</div>`;
+        const isSingle = ct[0].length===1 && ct[1].length===1;
+        cv.innerHTML = `<div class="tiny">Terrain ${cidx+1}${isSingle? ' <span class="label-single">SIMPLE</span>':''}</div>`;
         const teams = document.createElement('div'); teams.className='teams';
         teams.appendChild(teamEl(ct[0]));
         const vs = document.createElement('div'); vs.style.textAlign='center'; vs.textContent='vs'; teams.appendChild(vs);
@@ -305,7 +342,7 @@
     pair.forEach(n=>{
       const p = state.players.find(x=>x.name===n);
       const badge = document.createElement('div'); badge.className='name';
-      const dot = document.createElement('span'); dot.className = 'dot ' + (p.color==='orange'?'orange':'green');
+      const dot = document.createElement('span'); dot.className = 'dot ' + (p && p.color==='orange'?'orange': (p && p.color==='green'?'green':'') );
       badge.appendChild(dot);
       const t = document.createTextNode(' '+n);
       badge.appendChild(t);
@@ -316,7 +353,8 @@
 
   // --- PWA minimal install banner ---
   let deferredPrompt=null; window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt=e; });
-  function pwaInstall(){ if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.finally(()=> deferredPrompt=null ); } else { alert("Sur iPhone : partages > 'Sur l'écran d'accueil'\nSur Android/Chrome : menu ⋮ > 'Ajouter à l'écran d'accueil'"); } }
+  function pwaInstall(){ if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.finally(()=> deferredPrompt=null ); } else { alert("Sur iPhone : partages > 'Sur l'écran d'accueil'
+Sur Android/Chrome : menu ⋮ > 'Ajouter à l'écran d'accueil'"); } }
 
   // --- Events ---
   el('add').onclick = ()=>{
@@ -330,7 +368,9 @@
   el('draw').onclick = ()=>{
     state.byesCount = new Map();
     const n = parseInt(el('rounds').value||'4',10);
-    const res = drawOnce(n);
+    const maxC = Math.max(1, Math.min(7, parseInt(el('maxcourts').value||'7',10)));
+    const allowSingles = el('singles').checked;
+    const res = drawOnce(n, maxC, allowSingles);
     state.lastResults = res;
     renderResults(res);
   };
@@ -338,9 +378,10 @@
   el('reshuffle').onclick = ()=>{
     if(!state.players.length){ alert('Ajoutez des joueurs d’abord.'); return; }
     if(!state.lastResults){ el('draw').click(); return; }
-    // Simply redraw with fresh shuffles, preserving history reset
     const n = parseInt(el('rounds').value||'4',10);
-    const res = drawOnce(n);
+    const maxC = Math.max(1, Math.min(7, parseInt(el('maxcourts').value||'7',10)));
+    const allowSingles = el('singles').checked;
+    const res = drawOnce(n, maxC, allowSingles);
     state.lastResults = res; renderResults(res);
   };
 
@@ -351,10 +392,19 @@
   </script>
 
   <!-- Minimal PWA manifest/service worker for offline (optional, inline for simplicity) -->
-  <link rel="manifest" href="data:application/manifest+json,{\n  \"name\": \"Tournoi Salade\",\n  \"short_name\": \"Salade\",\n  \"start_url\": \".\",\n  \"display\": \"standalone\",\n  \"background_color\": \"#0f172a\",\n  \"theme_color\": \"#22d3ee\",\n  \"icons\": []\n} ">
+  <link rel="manifest" href="data:application/manifest+json,{
+  \"name\": \"Tournoi Salade\",
+  \"short_name\": \"Salade\",
+  \"start_url\": \".\",
+  \"display\": \"standalone\",
+  \"background_color\": \"#0f172a\",
+  \"theme_color\": \"#22d3ee\",
+  \"icons\": []
+} ">
   <script>
   if('serviceWorker' in navigator){
-    const sw = `self.addEventListener('install',e=>{e.waitUntil(caches.open('salade-v1').then(c=>c.addAll(['./'])))});\nself.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
+    const sw = `self.addEventListener('install',e=>{e.waitUntil(caches.open('salade-v2').then(c=>c.addAll(['./'])))});
+self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
     const blob = new Blob([sw],{type:'text/javascript'});
     const url = URL.createObjectURL(blob);
     navigator.serviceWorker.register(url);
