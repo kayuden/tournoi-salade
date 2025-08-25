@@ -4,528 +4,521 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Tournoi Salade – Générateur de tirages</title>
+  <!-- Tailwind via CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-50">
   <div id="root"></div>
 
-  <!-- React 18 + Babel pour compiler le JSX dans le navigateur -->
+  <!-- React 18 UMD + Babel pour compiler le JSX dans le navigateur -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Colle ici le composant App (celui de l’app dans le canvas), sans import/export -->
+  <!-- Votre application (collée telle quelle, avec import/export retirés) -->
   <script type="text/babel">
-    import React, { useEffect, useMemo, useState } from "react";
+    // import React, { useEffect, useMemo, useState } from "react";
+    const { useEffect, useMemo, useState } = React;
 
-/**
- * Tournoi Salade – Générateur de tirages
- *
- * Ajouts demandés :
- * - Sauvegarde automatique de la LISTE des personnes dans le navigateur (localStorage).
- * - Possibilité d'activer/désactiver la PRÉSENCE des personnes avant tirage.
- *
- * Règles :
- * - 4 tours par séance : mixte, séparé, mixte, séparé.
- * - 7 terrains max (configurable).
- * - Si l'effectif n'est pas multiple de 4, on peut créer des simples (2 joueurs).
- * - Il peut y avoir des joueurs au repos si on dépasse la capacité.
- * - Personne ne peut être deux fois au repos dans la même séance.
- * - Deux joueurs ne peuvent pas être coéquipiers plus d'une fois dans la séance.
- * - Pour les tours mixtes : on priorise les matchs C+NC, puis on complète les terrains restants
- *   même si cela crée des équipes non mixtes si déséquilibre des effectifs.
- */
+    /**
+     * Tournoi Salade – Générateur de tirages
+     *
+     * Ajouts demandés :
+     * - Sauvegarde automatique de la LISTE des personnes dans le navigateur (localStorage).
+     * - Possibilité d'activer/désactiver la PRÉSENCE des personnes avant tirage.
+     *
+     * Règles :
+     * - 4 tours par séance : mixte, séparé, mixte, séparé.
+     * - 7 terrains max (configurable).
+     * - Si l'effectif n'est pas multiple de 4, on peut créer des simples (2 joueurs).
+     * - Il peut y avoir des joueurs au repos si on dépasse la capacité.
+     * - Personne ne peut être deux fois au repos dans la même séance.
+     * - Deux joueurs ne peuvent pas être coéquipiers plus d'une fois dans la séance.
+     * - Pour les tours mixtes : on priorise les matchs C+NC, puis on complète les terrains restants
+     *   même si cela crée des équipes non mixtes si déséquilibre des effectifs.
+     */
 
-// Types
-const LABELS = {
-  C: { name: "Compétiteur", color: "bg-orange-100 text-orange-900 border-orange-300" },
-  NC: { name: "Non Compétiteur", color: "bg-emerald-100 text-emerald-900 border-emerald-300" },
-};
-
-const LS_KEY_PLAYERS = "ts_players_v1";
-const LS_KEY_COURTS = "ts_courts_v1";
-
-function uid() {
-  return Math.random().toString(36).slice(2, 9);
-}
-
-function shuffle(arr) {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-// Helper to make an unordered key for a pair
-function pairKey(aId, bId) {
-  return [aId, bId].sort().join("|");
-}
-
-// Data structures
-// Player: { id, name, tag: 'C' | 'NC', present: boolean, plays, rests }
-// Team: { players: [id,id], label: 'C' | 'NC' | 'MIX' }
-// Match: { type: 'doubles' | 'singles', court, teamA: Team | PlayerId, teamB: Team | PlayerId }
-
-function buildSession(players, courts) {
-  // We try several attempts to satisfy constraints (randomized greedy)
-  const MAX_ATTEMPTS = 600; // keep snappy on phone
-
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const state = {
-      players: players.map((p) => ({ ...p, plays: 0, rests: 0 })),
-      teammatePairs: new Set(), // pairKey(id1,id2)
-      opposedPairs: new Set(), // pairKey(id1,id2) – soft constraint
-      rounds: [],
+    // Types
+    const LABELS = {
+      C: { name: "Compétiteur", color: "bg-orange-100 text-orange-900 border-orange-300" },
+      NC: { name: "Non Compétiteur", color: "bg-emerald-100 text-emerald-900 border-emerald-300" },
     };
 
-    const patterns = ["MIX", "SPLIT", "MIX", "SPLIT"]; // 4 tours
+    const LS_KEY_PLAYERS = "ts_players_v1";
+    const LS_KEY_COURTS = "ts_courts_v1";
 
-    let ok = true;
-    for (let r = 0; r < 4; r++) {
-      const kind = patterns[r];
-      const res = buildRound(state, courts, kind);
-      if (!res) {
-        ok = false;
-        break;
-      }
-      state.rounds.push(res.round);
-      // update state from res.applied
-      state.teammatePairs = res.teammatePairs;
-      state.opposedPairs = res.opposedPairs;
-      state.players = res.players;
+    function uid() {
+      return Math.random().toString(36).slice(2, 9);
     }
 
-    if (ok) return state.rounds; // success!
-  }
-
-  // Last resort: return null to indicate failure
-  return null;
-}
-
-function buildRound(state, courts, kind) {
-  // Clone mutable state
-  const players = state.players.map((p) => ({ ...p }));
-  const teammatePairs = new Set([...state.teammatePairs]);
-  const opposedPairs = new Set([...state.opposedPairs]);
-
-  // Determine capacity for this round
-  const maxCourts = Math.min(7, Math.max(1, courts));
-
-  // Select active roster ensuring no one sits twice
-  // Heuristic: prefer players with fewer plays so far
-  const sorted = [...players].sort((a, b) => a.plays - b.plays || a.name.localeCompare(b.name));
-
-  // We'll try multiple seatings with slight randomization
-  const CANDIDATE_TRIES = 50;
-  for (let t = 0; t < CANDIDATE_TRIES; t++) {
-    // Small randomization to escape local minima
-    const roster = shuffle(sorted).sort((a, b) => a.plays - b.plays);
-
-    // Apply one rest max per player per session
-    const actives = roster.filter((p) => p.rests < 1);
-
-    // We won't force all to play; capacity is limited by courts
-    const byTag = {
-      C: actives.filter((p) => p.tag === "C" && p.present),
-      NC: actives.filter((p) => p.tag === "NC" && p.present),
-    };
-
-    // Build matches greedily under constraints
-    const matches = [];
-    const used = new Set();
-
-    function take(list, id) {
-      used.add(id);
-      return list.find((p) => p.id === id);
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
     }
 
-    // Helper: find partner not yet teamed before
-    function findPartner(pool, pid) {
-      const candidates = shuffle(pool.filter((q) => q.id !== pid && !used.has(q.id)));
-      for (const q of candidates) {
-        if (!teammatePairs.has(pairKey(pid, q.id))) return q;
+    // Helper to make an unordered key for a pair
+    function pairKey(aId, bId) {
+      return [aId, bId].sort().join("|");
+    }
+
+    // Data structures
+    // Player: { id, name, tag: 'C' | 'NC', present: boolean, plays, rests }
+    // Team: { players: [id,id], label: 'C' | 'NC' | 'MIX' }
+    // Match: { type: 'doubles' | 'singles', court, teamA: Team | PlayerId, teamB: Team | PlayerId }
+
+    function buildSession(players, courts) {
+      // We try several attempts to satisfy constraints (randomized greedy)
+      const MAX_ATTEMPTS = 600; // keep snappy on phone
+
+      for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+        const state = {
+          players: players.map((p) => ({ ...p, plays: 0, rests: 0 })),
+          teammatePairs: new Set(), // pairKey(id1,id2)
+          opposedPairs: new Set(), // pairKey(id1,id2) – soft constraint
+          rounds: [],
+        };
+
+        const patterns = ["MIX", "SPLIT", "MIX", "SPLIT"]; // 4 tours
+
+        let ok = true;
+        for (let r = 0; r < 4; r++) {
+          const kind = patterns[r];
+          const res = buildRound(state, courts, kind);
+          if (!res) {
+            ok = false;
+            break;
+          }
+          state.rounds.push(res.round);
+          // update state from res.applied
+          state.teammatePairs = res.teammatePairs;
+          state.opposedPairs = res.opposedPairs;
+          state.players = res.players;
+        }
+
+        if (ok) return state.rounds; // success!
       }
+
+      // Last resort: return null to indicate failure
       return null;
     }
 
-    // Helper: create a doubles match from two teams (team is [id,id])
-    function addDoubles(team1, team2, label) {
-      const [a1, a2] = team1;
-      const [b1, b2] = team2;
-      used.add(a1); used.add(a2); used.add(b1); used.add(b2);
-      matches.push({ type: "doubles", teamA: team1, teamB: team2, label });
-      teammatePairs.add(pairKey(a1, a2));
-      teammatePairs.add(pairKey(b1, b2));
-      // mark opponents (soft)
-      [a1, a2].forEach((x) => [b1, b2].forEach((y) => opposedPairs.add(pairKey(x, y))));
-    }
+    function buildRound(state, courts, kind) {
+      // Clone mutable state
+      const players = state.players.map((p) => ({ ...p }));
+      const teammatePairs = new Set([...state.teammatePairs]);
+      const opposedPairs = new Set([...state.opposedPairs]);
 
-    // Helper: singles
-    function addSingles(p1, p2, label) {
-      used.add(p1.id); used.add(p2.id);
-      matches.push({ type: "singles", teamA: [p1.id], teamB: [p2.id], label });
-      opposedPairs.add(pairKey(p1.id, p2.id));
-    }
+      // Determine capacity for this round
+      const maxCourts = Math.min(7, Math.max(1, courts));
 
-    // 1) MIX priority block if kind === 'MIX'
-    if (kind === "MIX") {
-      // number of potential mixed doubles = min(#C, #NC)
-      const maxMixedDbl = Math.min(byTag.C.length, byTag.NC.length, maxCourts);
+      // Select active roster ensuring no one sits twice
+      // Heuristic: prefer players with fewer plays so far
+      const sorted = [...players].sort((a, b) => a.plays - b.plays || a.name.localeCompare(b.name));
 
-      // build as many mixed doubles as possible first
-      const Cs = shuffle(byTag.C);
-      const NCs = shuffle(byTag.NC);
+      // We'll try multiple seatings with slight randomization
+      const CANDIDATE_TRIES = 50;
+      for (let t = 0; t < CANDIDATE_TRIES; t++) {
+        // Small randomization to escape local minima
+        const roster = shuffle(sorted).sort((a, b) => a.plays - b.plays);
 
-      let built = 0;
-      // We'll try to pair (C,NC) teams first, then face them
-      const mixedTeams = [];
+        // Apply one rest max per player per session
+        const actives = roster.filter((p) => p.rests < 1);
 
-      // form teams (C with NC) avoiding repeat teammates
-      for (const c of Cs) {
-        if (mixedTeams.length >= maxMixedDbl * 2) break; // two teams per match
-        if (used.has(c.id)) continue;
-        const partner = findPartner(NCs, c.id);
-        if (!partner) continue;
-        used.add(c.id); used.add(partner.id);
-        mixedTeams.push([c.id, partner.id]);
-      }
+        // We won't force all to play; capacity is limited by courts
+        const byTag = {
+          C: actives.filter((p) => p.tag === "C" && p.present),
+          NC: actives.filter((p) => p.tag === "NC" && p.present),
+        };
 
-      // pair mixed teams into matches
-      while (mixedTeams.length >= 2 && matches.length < maxCourts) {
-        const t1 = mixedTeams.pop();
-        const t2 = mixedTeams.pop();
-        addDoubles(t1, t2, "MIX");
-        built++;
-      }
+        // Build matches greedily under constraints
+        const matches = [];
+        const used = new Set();
 
-      // If we still have courts free, complete with any-allowed doubles within tags
-      // respecting teammate constraint
-      const pools = [byTag.C, byTag.NC];
-      for (const pool of pools) {
-        // form teams in this pool
-        const ids = shuffle(pool.map((p) => p.id).filter((id) => !used.has(id)));
-        const teams = [];
-        while (ids.length) {
-          const a = ids.pop();
-          if (ids.length === 0) break;
-          // find partner without teammate repeat
-          let foundIdx = -1;
-          for (let i = ids.length - 1; i >= 0; i--) {
-            if (!teammatePairs.has(pairKey(a, ids[i]))) { foundIdx = i; break; }
+        function findPartner(pool, pid) {
+          const candidates = shuffle(pool.filter((q) => q.id !== pid && !used.has(q.id)));
+          for (const q of candidates) {
+            if (!teammatePairs.has(pairKey(pid, q.id))) return q;
           }
-          if (foundIdx === -1) break;
-          const b = ids.splice(foundIdx, 1)[0];
-          teams.push([a, b]);
+          return null;
         }
-        while (teams.length >= 2 && matches.length < maxCourts) {
-          const t1 = teams.pop();
-          const t2 = teams.pop();
-          addDoubles(t1, t2, pool[0]?.tag || "");
+
+        // Helper: create a doubles match from two teams (team is [id,id])
+        function addDoubles(team1, team2, label) {
+          const [a1, a2] = team1;
+          const [b1, b2] = team2;
+          used.add(a1); used.add(a2); used.add(b1); used.add(b2);
+          matches.push({ type: "doubles", teamA: team1, teamB: team2, label });
+          teammatePairs.add(pairKey(a1, a2));
+          teammatePairs.add(pairKey(b1, b2));
+          // mark opponents (soft)
+          [a1, a2].forEach((x) => [b1, b2].forEach((y) => opposedPairs.add(pairKey(x, y))));
+        }
+
+        // Helper: singles
+        function addSingles(p1, p2, label) {
+          used.add(p1.id); used.add(p2.id);
+          matches.push({ type: "singles", teamA: [p1.id], teamB: [p2.id], label });
+          opposedPairs.add(pairKey(p1.id, p2.id));
+        }
+
+        // 1) MIX priority block if kind === 'MIX'
+        if (kind === "MIX") {
+          // number of potential mixed doubles = min(#C, #NC)
+          const maxMixedDbl = Math.min(byTag.C.length, byTag.NC.length, maxCourts);
+
+          // build as many mixed doubles as possible first
+          const Cs = shuffle(byTag.C);
+          const NCs = shuffle(byTag.NC);
+
+          // We'll try to pair (C,NC) teams first, then face them
+          const mixedTeams = [];
+
+          // form teams (C with NC) avoiding repeat teammates
+          for (const c of Cs) {
+            if (mixedTeams.length >= maxMixedDbl * 2) break; // two teams per match
+            if (used.has(c.id)) continue;
+            const partner = findPartner(NCs, c.id);
+            if (!partner) continue;
+            used.add(c.id); used.add(partner.id);
+            mixedTeams.push([c.id, partner.id]);
+          }
+
+          // pair mixed teams into matches
+          while (mixedTeams.length >= 2 && matches.length < maxCourts) {
+            const t1 = mixedTeams.pop();
+            const t2 = mixedTeams.pop();
+            addDoubles(t1, t2, "MIX");
+          }
+
+          // If we still have courts free, complete with any-allowed doubles within tags
+          // respecting teammate constraint
+          const pools = [byTag.C, byTag.NC];
+          for (const pool of pools) {
+            // form teams in this pool
+            const ids = shuffle(pool.map((p) => p.id).filter((id) => !used.has(id)));
+            const teams = [];
+            while (ids.length) {
+              const a = ids.pop();
+              if (ids.length === 0) break;
+              // find partner without teammate repeat
+              let foundIdx = -1;
+              for (let i = ids.length - 1; i >= 0; i--) {
+                if (!teammatePairs.has(pairKey(a, ids[i]))) { foundIdx = i; break; }
+              }
+              if (foundIdx === -1) break;
+              const b = ids.splice(foundIdx, 1)[0];
+              teams.push([a, b]);
+            }
+            while (teams.length >= 2 && matches.length < maxCourts) {
+              const t1 = teams.pop();
+              const t2 = teams.pop();
+              addDoubles(t1, t2, pool[0]?.tag || "");
+            }
+          }
+        }
+
+        // 2) SPLIT block: build C vs C and NC vs NC doubles
+        if (kind === "SPLIT" && matches.length < maxCourts) {
+          const doPool = (poolTag) => {
+            const pool = shuffle(byTag[poolTag].filter((p) => !used.has(p.id)));
+            // create teams avoiding repeat teammates
+            const teams = [];
+            while (pool.length >= 2) {
+              const a = pool.pop();
+              const partner = findPartner(pool, a.id);
+              if (!partner) break;
+              // remove partner from pool
+              const idx = pool.findIndex((x) => x.id === partner.id);
+              if (idx !== -1) pool.splice(idx, 1);
+              teams.push([a.id, partner.id]);
+            }
+            while (teams.length >= 2 && matches.length < maxCourts) {
+              const t1 = teams.pop();
+              const t2 = teams.pop();
+              addDoubles(t1, t2, poolTag);
+            }
+          };
+          doPool("C");
+          doPool("NC");
+        }
+
+        // 3) Fill remaining courts with singles if needed
+        if (matches.length < maxCourts) {
+          const remaining = actives.filter((p) => p.present && !used.has(p.id));
+          // Avoid repeating exact same opposition within session if possible
+          while (matches.length < maxCourts && remaining.length >= 2) {
+            const p1 = remaining.pop();
+            // find opponent not already faced
+            let idx = remaining.findIndex((q) => !opposedPairs.has(pairKey(p1.id, q.id)));
+            if (idx === -1) idx = remaining.length - 1; // fallback
+            const p2 = remaining.splice(idx, 1)[0];
+            addSingles(p1, p2, "S");
+          }
+        }
+
+        // Update plays/rests respecting capacity; anyone unused and not exceeding one rest gets rest
+        const usedIds = new Set(matches.flatMap((m) => (m.type === "doubles" ? [...m.teamA, ...m.teamB] : [...m.teamA, ...m.teamB])));
+
+        // Count courts used to compute capacity
+        const courtsUsed = Math.min(matches.length, maxCourts);
+        // Update player counters
+        for (const p of players) {
+          if (!p.present) continue;
+          if (usedIds.has(p.id)) p.plays += 1; else if (p.rests < 1) p.rests += 1;
+        }
+
+        // If we somehow left many courts unused while eligible players exist, consider this attempt failed
+        const eligibleCount = actives.filter((p) => p.present).length;
+        const theoreticalMaxMatches = Math.min(maxCourts, Math.floor(eligibleCount / 4) + (eligibleCount % 4 >= 2 ? 1 : 0));
+        if (courtsUsed === 0 && theoreticalMaxMatches > 0) {
+          continue; // try another roster/shuffle
+        }
+
+        // Success for this round
+        // Assign court numbers
+        const round = matches.slice(0, maxCourts).map((m, i) => ({ ...m, court: i + 1 }));
+
+        return { round, teammatePairs, opposedPairs, players };
+      }
+
+      return null; // failed to build a round
+    }
+
+    function prettyTeam(team, playersById) {
+      if (!team) return "";
+      const names = team.map((id) => playersById.get(id)?.name || "?");
+      return names.join(" & ");
+    }
+
+    function App() {
+      const [name, setName] = useState("");
+      const [tag, setTag] = useState("C");
+      const [courts, setCourts] = useState(7);
+      const [players, setPlayers] = useState([]);
+      const [rounds, setRounds] = useState(null);
+      const [error, setError] = useState("");
+
+      // Load from localStorage on mount
+      useEffect(() => {
+        try {
+          const raw = localStorage.getItem(LS_KEY_PLAYERS);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+              setPlayers(parsed.map((p) => ({ ...p, present: p.present ?? true })));
+            }
+          }
+          const c = localStorage.getItem(LS_KEY_COURTS);
+          if (c) setCourts(Number(c));
+        } catch (e) {}
+      }, []);
+
+      // Persist players and courts
+      useEffect(() => {
+        try {
+          localStorage.setItem(LS_KEY_PLAYERS, JSON.stringify(players));
+        } catch (e) {}
+      }, [players]);
+
+      useEffect(() => {
+        try {
+          localStorage.setItem(LS_KEY_COURTS, String(courts));
+        } catch (e) {}
+      }, [courts]);
+
+      const playersById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
+
+      const presentCount = players.filter((p) => p.present).length;
+
+      function addPlayer() {
+        const trimmed = name.trim();
+        if (!trimmed) return;
+        if (players.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
+          setError("Nom déjà présent.");
+          return;
+        }
+        setPlayers((ps) => [...ps, { id: uid(), name: trimmed, tag, present: true }]);
+        setName("");
+        setError("");
+      }
+
+      function removePlayer(id) {
+        setPlayers((ps) => ps.filter((p) => p.id !== id));
+      }
+
+      function togglePresence(id) {
+        setPlayers((ps) => ps.map((p) => (p.id === id ? { ...p, present: !p.present } : p)));
+      }
+
+      function setAllPresence(value) {
+        setPlayers((ps) => ps.map((p) => ({ ...p, present: value })));
+      }
+
+      function generate() {
+        setError("");
+        const todaysPlayers = players.filter((p) => p.present);
+        if (todaysPlayers.length < 2) {
+          setError("Sélectionnez au moins 2 joueurs présents.");
+          return;
+        }
+        const res = buildSession(todaysPlayers, courts);
+        if (!res) {
+          setRounds(null);
+          setError("Impossible de trouver un tirage respectant toutes les contraintes. Réessayez (ou ajustez la liste / présence).");
+        } else {
+          setRounds(res);
         }
       }
-    }
 
-    // 2) SPLIT block: build C vs C and NC vs NC doubles
-    if (kind === "SPLIT" && matches.length < maxCourts) {
-      const doPool = (poolTag) => {
-        const pool = shuffle(byTag[poolTag].filter((p) => !used.has(p.id)));
-        // create teams avoiding repeat teammates
-        const teams = [];
-        while (pool.length >= 2) {
-          const a = pool.pop();
-          const partner = findPartner(pool, a.id);
-          if (!partner) break;
-          // remove partner from pool
-          const idx = pool.findIndex((x) => x.id === partner.id);
-          if (idx !== -1) pool.splice(idx, 1);
-          teams.push([a.id, partner.id]);
-        }
-        while (teams.length >= 2 && matches.length < maxCourts) {
-          const t1 = teams.pop();
-          const t2 = teams.pop();
-          addDoubles(t1, t2, poolTag);
-        }
-      };
-      doPool("C");
-      doPool("NC");
-    }
-
-    // 3) Fill remaining courts with singles if needed
-    if (matches.length < maxCourts) {
-      const remaining = actives.filter((p) => p.present && !used.has(p.id));
-      // Avoid repeating exact same opposition within session if possible
-      while (matches.length < maxCourts && remaining.length >= 2) {
-        const p1 = remaining.pop();
-        // find opponent not already faced
-        let idx = remaining.findIndex((q) => !opposedPairs.has(pairKey(p1.id, q.id)));
-        if (idx === -1) idx = remaining.length - 1; // fallback
-        const p2 = remaining.splice(idx, 1)[0];
-        addSingles(p1, p2, "S");
+      function reset() {
+        setRounds(null);
       }
-    }
 
-    // Update plays/rests respecting capacity; anyone unused and not exceeding one rest gets rest
-    const usedIds = new Set(matches.flatMap((m) => (m.type === "doubles" ? [...m.teamA, ...m.teamB] : [...m.teamA, ...m.teamB])));
-
-    // Count courts used to compute capacity
-    const courtsUsed = Math.min(matches.length, maxCourts);
-    // Update player counters
-    for (const p of players) {
-      if (!p.present) continue;
-      if (usedIds.has(p.id)) p.plays += 1; else if (p.rests < 1) p.rests += 1;
-    }
-
-    // If we somehow left many courts unused while eligible players exist, consider this attempt failed
-    const eligibleCount = actives.filter((p) => p.present).length;
-    const theoreticalMaxMatches = Math.min(maxCourts, Math.floor(eligibleCount / 4) + (eligibleCount % 4 >= 2 ? 1 : 0));
-    if (courtsUsed === 0 && theoreticalMaxMatches > 0) {
-      continue; // try another roster/shuffle
-    }
-
-    // Success for this round
-    // Assign court numbers
-    const round = matches.slice(0, maxCourts).map((m, i) => ({ ...m, court: i + 1 }));
-
-    return { round, teammatePairs, opposedPairs, players };
-  }
-
-  return null; // failed to build a round
-}
-
-function prettyTeam(team, playersById) {
-  if (!team) return "";
-  const names = team.map((id) => playersById.get(id)?.name || "?");
-  return names.join(" & ");
-}
-
-function App() {
-  const [name, setName] = useState("");
-  const [tag, setTag] = useState("C");
-  const [courts, setCourts] = useState(7);
-  const [players, setPlayers] = useState([]);
-  const [rounds, setRounds] = useState(null);
-  const [error, setError] = useState("");
-
-  // Load from localStorage on mount
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(LS_KEY_PLAYERS);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setPlayers(parsed.map((p) => ({ ...p, present: p.present ?? true })));
-        }
+      function clearPresence() {
+        setAllPresence(false);
       }
-      const c = localStorage.getItem(LS_KEY_COURTS);
-      if (c) setCourts(Number(c));
-    } catch (e) {}
-  }, []);
 
-  // Persist players and courts
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_KEY_PLAYERS, JSON.stringify(players));
-    } catch (e) {}
-  }, [players]);
+      function allPresent() {
+        setAllPresence(true);
+      }
 
-  useEffect(() => {
-    try {
-      localStorage.setItem(LS_KEY_COURTS, String(courts));
-    } catch (e) {}
-  }, [courts]);
+      return (
+        <div className="min-h-screen bg-slate-50 p-4 md:p-6">
+          <div className="max-w-4xl mx-auto space-y-6">
+            <header className="flex items-center justify-between">
+              <h1 className="text-2xl font-bold">Tournoi Salade – Générateur de tirages</h1>
+              <span className="text-sm text-slate-500">4 tours · 15 min · 20h15 → 21h15 (lundi)</span>
+            </header>
 
-  const playersById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="md:col-span-2 bg-white border rounded-2xl p-4 shadow-sm">
+                <h2 className="font-semibold mb-3">Ajouter un joueur</h2>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Nom"
+                    className="flex-1 rounded-xl border px-3 py-2"
+                  />
+                  <select value={tag} onChange={(e) => setTag(e.target.value)} className="rounded-xl border px-3 py-2">
+                    <option value="C">Compétiteur (étiquette orange)</option>
+                    <option value="NC">Non Compétiteur (étiquette verte)</option>
+                  </select>
+                  <button onClick={addPlayer} className="rounded-xl px-4 py-2 bg-slate-900 text-white">Ajouter</button>
+                </div>
+                {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
 
-  const presentCount = players.filter((p) => p.present).length;
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="font-medium">Liste des joueurs ({players.length})</h3>
+                    <div className="text-sm text-slate-600">Présents aujourd'hui : <span className="font-semibold">{presentCount}</span></div>
+                  </div>
 
-  function addPlayer() {
-    const trimmed = name.trim();
-    if (!trimmed) return;
-    if (players.some((p) => p.name.toLowerCase() === trimmed.toLowerCase())) {
-      setError("Nom déjà présent.");
-      return;
-    }
-    setPlayers((ps) => [...ps, { id: uid(), name: trimmed, tag, present: true }]);
-    setName("");
-    setError("");
-  }
+                  {players.length === 0 && <p className="text-sm text-slate-500">Aucun joueur pour l'instant.</p>}
 
-  function removePlayer(id) {
-    setPlayers((ps) => ps.filter((p) => p.id !== id));
-  }
+                  <div className="flex gap-2 mb-3">
+                    <button onClick={allPresent} className="rounded-lg px-3 py-1 border">Tous présents</button>
+                    <button onClick={clearPresence} className="rounded-lg px-3 py-1 border">Tous absents</button>
+                  </div>
 
-  function togglePresence(id) {
-    setPlayers((ps) => ps.map((p) => (p.id === id ? { ...p, present: !p.present } : p)));
-  }
+                  <ul className="grid gap-2 md:grid-cols-2">
+                    {players.map((p) => (
+                      <li key={p.id} className="flex items-center justify-between rounded-xl border p-2 bg-slate-50">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={p.present}
+                            onChange={() => togglePresence(p.id)}
+                            className="w-4 h-4"
+                            title="Présent ce soir"
+                          />
+                          <span className={`text-xs px-2 py-1 rounded border ${LABELS[p.tag].color}`}>{LABELS[p.tag].name}</span>
+                          <span className="font-medium">{p.name}</span>
+                        </div>
+                        <button onClick={() => removePlayer(p.id)} className="text-slate-500 hover:text-red-600 text-sm">Retirer</button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
 
-  function setAllPresence(value) {
-    setPlayers((ps) => ps.map((p) => ({ ...p, present: value })));
-  }
+              <div className="bg-white border rounded-2xl p-4 shadow-sm">
+                <h2 className="font-semibold mb-3">Paramètres</h2>
+                <label className="text-sm text-slate-600">Terrains (max 7)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={7}
+                  value={courts}
+                  onChange={(e) => setCourts(Number(e.target.value))}
+                  className="w-full rounded-xl border px-3 py-2 mt-1"
+                />
 
-  function generate() {
-    setError("");
-    const todaysPlayers = players.filter((p) => p.present);
-    if (todaysPlayers.length < 2) {
-      setError("Sélectionnez au moins 2 joueurs présents.");
-      return;
-    }
-    const res = buildSession(todaysPlayers, courts);
-    if (!res) {
-      setRounds(null);
-      setError("Impossible de trouver un tirage respectant toutes les contraintes. Réessayez (ou ajustez la liste / présence).");
-    } else {
-      setRounds(res);
-    }
-  }
+                <div className="mt-4 flex gap-2">
+                  <button onClick={generate} className="flex-1 rounded-xl px-4 py-2 bg-emerald-600 text-white">Générer la séance</button>
+                  <button onClick={reset} className="rounded-xl px-4 py-2 border">Réinitialiser</button>
+                </div>
 
-  function reset() {
-    setRounds(null);
-  }
-
-  function clearPresence() {
-    setAllPresence(false);
-  }
-
-  function allPresent() {
-    setAllPresence(true);
-  }
-
-  return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-6">
-      <div className="max-w-4xl mx-auto space-y-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Tournoi Salade – Générateur de tirages</h1>
-          <span className="text-sm text-slate-500">4 tours · 15 min · 20h15 → 21h15 (lundi)</span>
-        </header>
-
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="md:col-span-2 bg-white border rounded-2xl p-4 shadow-sm">
-            <h2 className="font-semibold mb-3">Ajouter un joueur</h2>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Nom"
-                className="flex-1 rounded-xl border px-3 py-2"
-              />
-              <select value={tag} onChange={(e) => setTag(e.target.value)} className="rounded-xl border px-3 py-2">
-                <option value="C">Compétiteur (étiquette orange)</option>
-                <option value="NC">Non Compétiteur (étiquette verte)</option>
-              </select>
-              <button onClick={addPlayer} className="rounded-xl px-4 py-2 bg-slate-900 text-white">Ajouter</button>
+                <p className="text-xs text-slate-500 mt-3">
+                  Astuce : La liste des joueurs et le nombre de terrains sont sauvegardés automatiquement sur cet appareil. Cochez/décochez la présence avant de générer.
+                </p>
+              </div>
             </div>
-            {error && <p className="text-sm text-red-600 mt-2">{error}</p>}
 
-            <div className="mt-4">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-medium">Liste des joueurs ({players.length})</h3>
-                <div className="text-sm text-slate-600">Présents aujourd'hui : <span className="font-semibold">{presentCount}</span></div>
-              </div>
-
-              {players.length === 0 && <p className="text-sm text-slate-500">Aucun joueur pour l'instant.</p>}
-
-              <div className="flex gap-2 mb-3">
-                <button onClick={allPresent} className="rounded-lg px-3 py-1 border">Tous présents</button>
-                <button onClick={clearPresence} className="rounded-lg px-3 py-1 border">Tous absents</button>
-              </div>
-
-              <ul className="grid gap-2 md:grid-cols-2">
-                {players.map((p) => (
-                  <li key={p.id} className="flex items-center justify-between rounded-xl border p-2 bg-slate-50">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={p.present}
-                        onChange={() => togglePresence(p.id)}
-                        className="w-4 h-4"
-                        title="Présent ce soir"
-                      />
-                      <span className={`text-xs px-2 py-1 rounded border ${LABELS[p.tag].color}`}>{LABELS[p.tag].name}</span>
-                      <span className="font-medium">{p.name}</span>
+            {rounds && (
+              <div className="space-y-6">
+                {rounds.map((matches, idx) => (
+                  <div key={idx} className="bg-white border rounded-2xl p-4 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <h2 className="font-semibold">Tour {idx + 1} {idx % 2 === 0 ? "(Mixte prioritaire)" : "(Séparé)"}</h2>
+                      <span className="text-xs text-slate-500">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
-                    <button onClick={() => removePlayer(p.id)} className="text-slate-500 hover:text-red-600 text-sm">Retirer</button>
-                  </li>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      {matches.map((m) => {
+                        const labelChip = m.label === "MIX" ? "bg-indigo-100 text-indigo-900 border-indigo-300" : m.label === "C" ? LABELS.C.color : m.label === "NC" ? LABELS.NC.color : "bg-slate-100 text-slate-900 border-slate-300";
+                        return (
+                          <div key={m.court} className="rounded-xl border p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="font-semibold">Court {m.court} · {m.type === 'doubles' ? 'Double' : 'Simple'}</div>
+                              <span className={`text-xs px-2 py-1 rounded border ${labelChip}`}>{m.label === 'S' ? 'Libre' : (m.label === 'MIX' ? 'Mixte' : (m.label === 'C' ? 'Compétiteurs' : 'Non Compétiteurs'))}</span>
+                            </div>
+                            <div className="text-sm">
+                              {m.type === 'doubles' ? (
+                                <div className="space-y-1">
+                                  <div className="font-medium">{prettyTeam(m.teamA, playersById)}</div>
+                                  <div className="text-slate-500">vs</div>
+                                  <div className="font-medium">{prettyTeam(m.teamB, playersById)}</div>
+                                </div>
+                              ) : (
+                                <div className="space-y-1">
+                                  <div className="font-medium">{playersById.get(m.teamA[0])?.name}</div>
+                                  <div className="text-slate-500">vs</div>
+                                  <div className="font-medium">{playersById.get(m.teamB[0])?.name}</div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 ))}
-              </ul>
-            </div>
-          </div>
+              </div>
+            )}
 
-          <div className="bg-white border rounded-2xl p-4 shadow-sm">
-            <h2 className="font-semibold mb-3">Paramètres</h2>
-            <label className="text-sm text-slate-600">Terrains (max 7)</label>
-            <input
-              type="number"
-              min={1}
-              max={7}
-              value={courts}
-              onChange={(e) => setCourts(Number(e.target.value))}
-              className="w-full rounded-xl border px-3 py-2 mt-1"
-            />
-
-            <div className="mt-4 flex gap-2">
-              <button onClick={generate} className="flex-1 rounded-xl px-4 py-2 bg-emerald-600 text-white">Générer la séance</button>
-              <button onClick={reset} className="rounded-xl px-4 py-2 border">Réinitialiser</button>
-            </div>
-
-            <p className="text-xs text-slate-500 mt-3">
-              Astuce : La liste des joueurs et le nombre de terrains sont sauvegardés automatiquement sur cet appareil. Cochez/décochez la présence avant de générer.
-            </p>
+            <footer className="text-xs text-slate-500 pt-6">
+              Conçu pour être utilisé gratuitement sur téléphone. La liste des joueurs est enregistrée localement (aucun compte requis). Pour une PWA (icône écran d'accueil) ou un export PDF/CSV, dites-le moi.
+            </footer>
           </div>
         </div>
+      );
+    }
 
-        {rounds && (
-          <div className="space-y-6">
-            {rounds.map((matches, idx) => (
-              <div key={idx} className="bg-white border rounded-2xl p-4 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <h2 className="font-semibold">Tour {idx + 1} {idx % 2 === 0 ? "(Mixte prioritaire)" : "(Séparé)"}</h2>
-                  <span className="text-xs text-slate-500">{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-                <div className="mt-3 grid gap-3 md:grid-cols-2">
-                  {matches.map((m) => {
-                    const labelChip = m.label === "MIX" ? "bg-indigo-100 text-indigo-900 border-indigo-300" : m.label === "C" ? LABELS.C.color : m.label === "NC" ? LABELS.NC.color : "bg-slate-100 text-slate-900 border-slate-300";
-                    return (
-                      <div key={m.court} className="rounded-xl border p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="font-semibold">Court {m.court} · {m.type === 'doubles' ? 'Double' : 'Simple'}</div>
-                          <span className={`text-xs px-2 py-1 rounded border ${labelChip}`}>{m.label === 'S' ? 'Libre' : (m.label === 'MIX' ? 'Mixte' : (m.label === 'C' ? 'Compétiteurs' : 'Non Compétiteurs'))}</span>
-                        </div>
-                        <div className="text-sm">
-                          {m.type === 'doubles' ? (
-                            <div className="space-y-1">
-                              <div className="font-medium">{prettyTeam(m.teamA, playersById)}</div>
-                              <div className="text-slate-500">vs</div>
-                              <div className="font-medium">{prettyTeam(m.teamB, playersById)}</div>
-                            </div>
-                          ) : (
-                            <div className="space-y-1">
-                              <div className="font-medium">{playersById.get(m.teamA[0])?.name}</div>
-                              <div className="text-slate-500">vs</div>
-                              <div className="font-medium">{playersById.get(m.teamB[0])?.name}</div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <footer className="text-xs text-slate-500 pt-6">
-          Conçu pour être utilisé gratuitement sur téléphone. La liste des joueurs est enregistrée localement (aucun compte requis). Pour une PWA (icône écran d'accueil) ou un export PDF/CSV, dites-le moi.
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-
-    // à la fin :
+    // export default function App() { ... } --> remplacé par function App() { ... }
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(<App />);
   </script>
