@@ -1,414 +1,185 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Tournoi Salade – Tirages</title>
+  <meta charset="UTF-8">
+  <title>Tirage Tournoi Salade</title>
   <style>
-    :root { --bg:#0f172a; --card:#111827; --muted:#1f2937; --text:#e5e7eb; --accent:#22d3ee; --orange:#fb923c; --green:#34d399; }
-    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",sans-serif}
-    header{padding:16px 16px 8px;border-bottom:1px solid #111}
-    h1{margin:0;font-size:20px;display:flex;gap:8px;align-items:center}
-    .badge{font-size:12px;background:var(--muted);padding:2px 8px;border-radius:999px}
-    main{padding:16px;display:grid;gap:16px;max-width:900px;margin:0 auto}
-    .card{background:var(--card);border:1px solid #0b1020;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.35);}
-    .card h2{margin:0;font-size:18px;padding:12px 14px;border-bottom:1px solid #0b1020}
-    .card .content{padding:12px 14px}
-    label{font-size:13px;opacity:.9}
-    input,select,button,textarea{font:inherit}
-    input[type=text], input[type=number]{width:100%;padding:10px 12px;background:#0b1120;border:1px solid #0b1020;color:var(--text);border-radius:10px}
-    select{padding:10px 12px;background:#0b1120;border:1px solid #0b1020;color:var(--text);border-radius:10px}
-    button{cursor:pointer;border:1px solid #0b1020;border-radius:12px;padding:10px 14px;background:#111827;color:var(--text);}
-    button.primary{background:linear-gradient(135deg,#0891b2,#22d3ee);color:#001219;border:none}
-    button.warn{background:#7c2d12}
-    .row{display:grid;grid-template-columns:1fr 140px 46px;gap:8px}
-    .list{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-    .chip{display:flex;gap:8px;align-items:center;padding:6px 10px;border-radius:999px;border:1px solid #0b1020;background:#0b1120}
-    .chip .dot{width:8px;height:8px;border-radius:999px}
-    .chip .dot.orange{background:var(--orange)} .chip .dot.green{background:var(--green)}
-    .chip button{padding:4px 8px;border-radius:8px}
-    .cols{display:grid;gap:12px}
-    @media(min-width:800px){ .cols{grid-template-columns:1fr 1fr}}
-    .round{padding:10px;border:1px dashed #22304a;border-radius:12px;display:grid;gap:8px}
-    .court{background:#0b1120;border:1px solid #0b1020;border-radius:12px;padding:10px;display:grid;gap:6px}
-    .teams{display:grid;grid-template-columns:1fr 14px 1fr;gap:6px;align-items:center}
-    .team{display:flex;flex-wrap:wrap;gap:6px}
-    .name{padding:4px 8px;border-radius:8px;background:#0b162d;border:1px solid #0b1020}
-    .name .dot{margin-right:6px}
-    .bye{opacity:.7}
-    .tiny{font-size:12px;opacity:.8}
-    .toolbar{display:flex;flex-wrap:wrap;gap:8px}
-    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .note{font-size:12px;opacity:.85}
-    .hr{height:1px;background:#0b1020;margin:8px 0}
-    .label-single{padding:2px 6px;border:1px solid #234;border-radius:6px;font-size:11px;margin-left:6px}
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    h1, h2 { text-align: center; }
+    .inputs { margin: 15px 0; display: flex; gap: 10px; }
+    input, select, button { padding: 6px; font-size: 14px; }
+    #players { margin: 15px 0; }
+    .player { margin: 3px 0; }
+    .round { border: 1px solid #ccc; padding: 10px; margin: 10px 0; border-radius: 8px; }
+    .match { margin: 5px 0; }
+    .competiteur { color: orange; font-weight: bold; }
+    .noncompetiteur { color: green; font-weight: bold; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>🏸 Tournoi salade <span class="badge">tirage mobile</span></h1>
-  </header>
-  <main>
-    <section class="card">
-      <h2>Joueurs</h2>
-      <div class="content">
-        <div class="row">
-          <input id="name" type="text" placeholder="Nom ou pseudo" />
-          <select id="color">
-            <option value="orange">Étiquette ORANGE (compétiteur)</option>
-            <option value="green">Étiquette VERTE (loisir/débutant)</option>
-          </select>
-          <button id="add">Ajouter</button>
-        </div>
-        <div class="toolbar" style="margin-top:10px">
-          <button id="save" title="Sauvegarde locale">💾 Sauvegarder</button>
-          <button id="load">📂 Charger</button>
-          <button id="clear" class="warn">🗑️ Vider</button>
-        </div>
-        <div class="list" id="players"></div>
-        <div class="note">Astuce : enregistrez souvent. Vos listes sont stockées uniquement sur cet appareil (localStorage).</div>
-      </div>
-    </section>
+  <h1>Tirage "Tournoi Salade"</h1>
 
-    <section class="card">
-      <h2>Paramètres & tirage</h2>
-      <div class="content">
-        <div class="grid-2">
-          <div>
-            <label>Nombre de tours (par défaut 4)</label>
-            <input id="rounds" type="number" min="1" max="8" value="4" />
-          </div>
-          <div>
-            <label>Terrains maximum (1–7)</label>
-            <input id="maxcourts" type="number" min="1" max="7" value="7" />
-          </div>
-        </div>
-        <div class="grid-2" style="margin-top:8px">
-          <div>
-            <label><input id="singles" type="checkbox" /> Autoriser les matchs de <b>simple</b> pour compléter</label>
-          </div>
-          <div>
-            <span class="tiny">Tour impair : mixte (O+V vs O+V) · Tour pair : homogène (OO / VV)<br/>Si pas assez de joueurs d'une couleur en homogène, on complète en <b>mixte</b>.</span>
-          </div>
-        </div>
-        <div class="toolbar" style="margin-top:10px">
-          <button id="draw" class="primary">🎲 Générer les tirages</button>
-          <button id="reshuffle">🔁 Re-mélanger</button>
-          <button id="export">📱 Ajouter à l'écran d'accueil (PWA)</button>
-        </div>
-        <div class="note">Contrainte respectée : personne n'a le <b>même coéquipier</b> plus d'une fois dans la séance. Limite : <b>7 terrains</b> (28 joueurs en double).</div>
-      </div>
-    </section>
+  <div class="inputs">
+    <input id="name" type="text" placeholder="Nom joueur">
+    <select id="type">
+      <option value="Competiteur">Compétiteur 🟧</option>
+      <option value="NonCompetiteur">Non Compétiteur 🟩</option>
+    </select>
+    <button onclick="addPlayer()">Ajouter joueur</button>
+  </div>
 
-    <section class="card">
-      <h2>Résultats</h2>
-      <div class="content" id="results">
-        <div class="note">Ajoutez des joueurs puis cliquez sur <b>Générer</b>.</div>
-      </div>
-    </section>
+  <div id="players"></div>
 
-    <section class="card">
-      <h2>Mode d'emploi rapide</h2>
-      <div class="content">
-        <ol>
-          <li>Ajoutez les noms et leur couleur (orange/vert).</li>
-          <li>Appuyez sur <b>Générer</b>. Les tours alternent : mixte, homogène, mixte, homogène.</li>
-          <li>Effectifs impairs → <i>byes</i> équitables, ou <b>simples</b> si l'option est cochée.</li>
-          <li>Manque d'une couleur en homogène → on bascule ce qu'il faut en <b>mixte</b> pour remplir les terrains.</li>
-        </ol>
-      </div>
-    </section>
-  </main>
+  <button onclick="generateRounds()">🎲 Générer les 4 tours</button>
 
-  <script>
-  // --- Storage & state ---
-  const state = { players: [], history: new Map(), byesCount: new Map(), lastResults: null };
-  const el = (id)=>document.getElementById(id);
+  <div id="rounds"></div>
 
-  function renderPlayers(){
-    const wrap = el('players');
-    wrap.innerHTML = '';
-    state.players.forEach((p, idx)=>{
-      const chip = document.createElement('div');
-      chip.className = 'chip';
-      chip.innerHTML = `<span class="dot ${p.color==='orange'?'orange':'green'} dot"></span> <strong>${escapeHtml(p.name)}</strong> <span class="tiny">${p.color==='orange'?'orange':'verte'}</span>`;
-      const rm = document.createElement('button'); rm.textContent = '✕'; rm.title='Retirer';
-      rm.onclick = ()=>{ state.players.splice(idx,1); renderPlayers(); };
-      chip.appendChild(rm);
-      wrap.appendChild(chip);
+<script>
+let players = [];
+let partnerHistory = new Set();   // stocke les équipes
+let encounterHistory = new Set(); // stocke toutes les rencontres (partenaires et adversaires)
+
+function addPlayer() {
+  const name = document.getElementById("name").value.trim();
+  const type = document.getElementById("type").value;
+  if (!name) return;
+  players.push({name, type});
+  document.getElementById("name").value = "";
+  renderPlayers();
+}
+
+function renderPlayers() {
+  const div = document.getElementById("players");
+  div.innerHTML = "<h2>Joueurs inscrits :</h2>";
+  players.forEach((p, i) => {
+    div.innerHTML += `<div class="player">${i+1}. <span class="${p.type==='Competiteur'?'competiteur':'noncompetiteur'}">${p.name} (${p.type})</span></div>`;
+  });
+}
+
+function shuffle(array) {
+  return array.sort(() => Math.random() - 0.5);
+}
+
+function teamKey(a, b) {
+  return [a, b].sort().join("-");
+}
+
+function matchKey(team1, team2) {
+  return [...team1.map(x=>x.name), ...team2.map(x=>x.name)].sort().join("-");
+}
+
+function alreadyEncountered(a, b) {
+  return encounterHistory.has(teamKey(a.name, b.name));
+}
+
+function registerMatch(team1, team2) {
+  // enregistrer partenaires
+  partnerHistory.add(teamKey(team1[0].name, team1[1].name));
+  partnerHistory.add(teamKey(team2[0].name, team2[1].name));
+  // enregistrer toutes les rencontres
+  for (let p1 of team1) for (let p2 of team2) {
+    encounterHistory.add(teamKey(p1.name, p2.name));
+  }
+}
+
+function generateRounds() {
+  if (players.length < 4) {
+    alert("Ajoute au moins 4 joueurs !");
+    return;
+  }
+  partnerHistory.clear();
+  encounterHistory.clear();
+
+  const roundsDiv = document.getElementById("rounds");
+  roundsDiv.innerHTML = "";
+
+  for (let round = 1; round <= 4; round++) {
+    const type = (round % 2 === 1) ? "Mixte" : "Homogène";
+    const roundDiv = document.createElement("div");
+    roundDiv.className = "round";
+    roundDiv.innerHTML = `<h2>Tour ${round} (${type})</h2>`;
+    
+    let pool = shuffle([...players]);
+    let matches = [];
+    let terrains = 0;
+
+    while (pool.length >= 4 && terrains < 7) {
+      let team1 = [], team2 = [];
+
+      if (type === "Mixte") {
+        let comp1 = pool.find(p => p.type === "Competiteur");
+        let nonc1 = pool.find(p => p.type === "NonCompetiteur");
+        if (!comp1 || !nonc1) break;
+        team1 = [comp1, nonc1];
+        pool.splice(pool.indexOf(comp1), 1);
+        pool.splice(pool.indexOf(nonc1), 1);
+
+        let comp2 = pool.find(p => p.type === "Competiteur");
+        let nonc2 = pool.find(p => p.type === "NonCompetiteur");
+        if (!comp2 || !nonc2) break;
+        team2 = [comp2, nonc2];
+        pool.splice(pool.indexOf(comp2), 1);
+        pool.splice(pool.indexOf(nonc2), 1);
+
+      } else { // homogène
+        let group = pool[0].type;
+        let t1 = pool.filter(p => p.type === group).slice(0,2);
+        if (t1.length < 2) break;
+        team1 = t1;
+        team1.forEach(p => pool.splice(pool.indexOf(p), 1));
+
+        if (pool.length < 2) break;
+        group = pool[0].type;
+        let t2 = pool.filter(p => p.type === group).slice(0,2);
+        if (t2.length < 2) break;
+        team2 = t2;
+        team2.forEach(p => pool.splice(pool.indexOf(p), 1));
+      }
+
+      // éviter les doublons d'équipe
+      let t1key = teamKey(team1[0].name, team1[1].name);
+      let t2key = teamKey(team2[0].name, team2[1].name);
+
+      if (partnerHistory.has(t1key) || partnerHistory.has(t2key)) {
+        // remettre les joueurs à dispo si déjà vus
+        pool.push(...team1, ...team2);
+        shuffle(pool);
+        continue;
+      }
+
+      // éviter les rencontres déjà faites si possible
+      let already = false;
+      for (let p1 of team1) for (let p2 of team2) {
+        if (alreadyEncountered(p1, p2)) already = true;
+      }
+      if (already && pool.length > 0) {
+        pool.push(...team1, ...team2);
+        shuffle(pool);
+        continue;
+      }
+
+      registerMatch(team1, team2);
+      matches.push([team1, team2]);
+      terrains++;
+    }
+
+    matches.forEach((m,i) => {
+      roundDiv.innerHTML += `<div class="match">Terrain ${i+1} : 
+        <span class="${m[0][0].type==='Competiteur'?'competiteur':'noncompetiteur'}">${m[0][0].name}</span> +
+        <span class="${m[0][1].type==='Competiteur'?'competiteur':'noncompetiteur'}">${m[0][1].name}</span>
+        🆚
+        <span class="${m[1][0].type==='Competiteur'?'competiteur':'noncompetiteur'}">${m[1][0].name}</span> +
+        <span class="${m[1][1].type==='Competiteur'?'competiteur':'noncompetiteur'}">${m[1][1].name}</span>
+      </div>`;
     });
-  }
 
-  function save(){ localStorage.setItem('salade_players', JSON.stringify(state.players)); alert('Liste sauvegardée 👍'); }
-  function load(){ const s = localStorage.getItem('salade_players'); if(s){ state.players = JSON.parse(s); renderPlayers(); } }
-  function clearAll(){ if(confirm('Vider la liste ?')){ state.players=[]; renderPlayers(); } }
-
-  // --- Helpers ---
-  function escapeHtml(s){ return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c])); }
-  function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]]; } return arr; }
-  function key(a,b){ return a< b? a+'|'+b : b+'|'+a; }
-  function addHist(a,b){ const k=key(a,b); state.history.set(k,(state.history.get(k)||0)+1); }
-  function teamedBefore(a,b){ return (state.history.get(key(a,b))||0)>0; }
-
-  // Backtracking pair builder with no same teammate in session
-  function makePairsSamePool(pool){
-    pool = [...pool];
-    const used = new Set();
-    const pairs = [];
-
-    pool = shuffle(pool);
-
-    function backtrack(){
-      // stop when we can't add a full pair
-      if(used.size >= pool.length-1) return true;
-      const a = pool.find(x=>!used.has(x));
-      if(!a) return true;
-      used.add(a);
-      const candidates = pool.filter(x=>!used.has(x) && !teamedBefore(a,x));
-      const order = candidates.length? candidates: pool.filter(x=>!used.has(x));
-      for(const b of shuffle(order)){
-        used.add(b); pairs.push([a,b]);
-        if(backtrack()) return true;
-        pairs.pop(); used.delete(b);
-      }
-      used.delete(a);
-      return false;
-    }
-    backtrack();
-    return {pairs, ok:true};
-  }
-
-  function makePairsMixed(oranges, greens){
-    let A=[...oranges], B=[...greens];
-    A = shuffle(A); B = shuffle(B);
-    const usedA=new Set(), usedB=new Set();
-    const pairs=[];
-
-    function backtrack(){
-      if(usedA.size===Math.min(A.length,B.length) && usedB.size===Math.min(A.length,B.length)) return true;
-      const a = A.find(x=>!usedA.has(x));
-      if(!a) return true;
-      const candidates = B.filter(y=>!usedB.has(y) && !teamedBefore(a,y));
-      const order = candidates.length? candidates: B.filter(y=>!usedB.has(y));
-      for(const b of shuffle(order)){
-        usedA.add(a); usedB.add(b); pairs.push([a,b]);
-        if(backtrack()) return true;
-        pairs.pop(); usedA.delete(a); usedB.delete(b);
-      }
-      return false;
-    }
-    backtrack();
-    return {pairs, ok:true};
-  }
-
-  function assembleCourtsFromPairs(pairs, allowSingles, maxCourts){
-    const courts=[]; const byes=[]; let ok=true;
-    let P=[...pairs];
-
-    // If odd number of pairs, use one pair as a singles court if allowed
-    if(P.length%2===1){
-      const byeOrSingle = P.shift();
-      if(allowSingles && courts.length<maxCourts){
-        courts.push([[byeOrSingle[0]],[byeOrSingle[1]]]);
-      } else {
-        byes.push(...byeOrSingle);
-      }
-    }
-    for(let i=0;i<P.length && courts.length<maxCourts;i+=2){
-      courts.push([P[i], P[i+1]]);
-    }
-    // leftover pairs beyond max courts become byes
-    for(let j = courts.length*2; j < P.length; j++){
-      byes.push(...P[j]);
-    }
-    return {courts, byes, ok};
-  }
-
-  function mixFromTwoPairs(pairO, pairV){
-    // try two cross options; respect teammate history if possible
-    const [o1,o2]=pairO, [v1,v2]=pairV;
-    const options = [ [[o1,v1],[o2,v2]], [[o1,v2],[o2,v1]] ];
-    for(const opt of options){ if(!teamedBefore(...opt[0]) && !teamedBefore(...opt[1])) return {teams:opt, ok:true}; }
-    // fallback
-    return {teams:options[0], ok:false};
-  }
-
-  function drawOnce(totalRounds, maxCourts, allowSingles){
-    const oranges = state.players.filter(p=>p.color==='orange').map(p=>p.name);
-    const greens  = state.players.filter(p=>p.color==='green').map(p=>p.name);
-
-    if(oranges.length+greens.length < 2){ return {error:'Il faut au moins 2 joueurs.'}; }
-
-    // reset session history & accumulate results
-    state.history = new Map();
-    const rounds=[];
-
-    for(let r=1;r<=totalRounds;r++){
-      let mode = (r%2===1)? 'mixed':'homogeneous';
-      let round = { mode, courts:[], byes:[], ok:true };
-
-      if(mode==='mixed'){
-        const res = makePairsMixed(oranges,greens);
-        let pairs = res.pairs; round.ok = res.ok;
-
-        const grouped = assembleCourtsFromPairs(pairs, allowSingles, maxCourts);
-        round.courts = grouped.courts; round.byes.push(...grouped.byes); round.ok = round.ok && grouped.ok;
-
-      } else {
-        // Homogène, mais si pas assez pour faire des terrains complets, on mixe ce qu'il faut
-        let Opairs = makePairsSamePool(oranges).pairs;
-        let Vpairs = makePairsSamePool(greens).pairs;
-
-        // D'abord, remplir en pur OO et VV
-        while(Opairs.length>=2 && round.courts.length<maxCourts){
-          round.courts.push([Opairs.shift(), Opairs.shift()]);
-          // hist
-          const last = round.courts[round.courts.length-1]; addHist(last[0][0],last[0][1]); addHist(last[1][0],last[1][1]);
-        }
-        while(Vpairs.length>=2 && round.courts.length<maxCourts){
-          round.courts.push([Vpairs.shift(), Vpairs.shift()]);
-          const last = round.courts[round.courts.length-1]; addHist(last[0][0],last[0][1]); addHist(last[1][0],last[1][1]);
-        }
-
-        // Ensuite, si on peut compléter en mixte avec les paires restantes
-        while(Opairs.length>=1 && Vpairs.length>=1 && round.courts.length<maxCourts){
-          const O = Opairs.shift(); const V = Vpairs.shift();
-          const m = mixFromTwoPairs(O,V);
-          round.ok = round.ok && m.ok;
-          round.courts.push(m.teams);
-          addHist(m.teams[0][0], m.teams[0][1]);
-          addHist(m.teams[1][0], m.teams[1][1]);
-        }
-
-        // Traiter les paires solitaires restantes : simples si autorisé, sinon repos
-        const postO = assembleCourtsFromPairs(Opairs, allowSingles, maxCourts - round.courts.length);
-        round.courts.push(...postO.courts);
-        round.byes.push(...postO.byes);
-        round.ok = round.ok && postO.ok;
-        const postV = assembleCourtsFromPairs(Vpairs, allowSingles, maxCourts - round.courts.length);
-        round.courts.push(...postV.courts);
-        round.byes.push(...postV.byes);
-        round.ok = round.ok && postV.ok;
-      }
-
-      // Enregistrer l'historique des coéquipiers pour tous les terrains ajoutés ce tour
-      round.courts.forEach(ct=>{
-        // ct est [[a,b],[c,d]] pour double ou [[a],[b]] pour simple
-        if(ct[0].length===2) addHist(ct[0][0], ct[0][1]);
-        if(ct[1].length===2) addHist(ct[1][0], ct[1][1]);
-      });
-
-      rounds.push(round);
+    if (pool.length > 0) {
+      roundDiv.innerHTML += `<p><em>Repos ou simples : ${pool.map(p => p.name).join(", ")}</em></p>`;
     }
 
-    return {rounds};
+    roundsDiv.appendChild(roundDiv);
   }
-
-  function renderResults(res){
-    const wrap = el('results');
-    wrap.innerHTML='';
-    if(res.error){ wrap.innerHTML = `<p class="note">${res.error}</p>`; return; }
-
-    res.rounds.forEach((rd, idx)=>{
-      const box = document.createElement('div'); box.className='round';
-      const title = (rd.mode==='mixed')? 'Tour '+(idx+1)+' · MIXTE (O+V vs O+V)':'Tour '+(idx+1)+' · HOMOGÈNE (OO / VV)';
-      const warn = rd.ok? '' : ' <span title="Aucun arrangement parfait; une paire a été tolérée">⚠️</span>';
-      box.innerHTML = `<div><b>${title}</b>${warn}</div>`;
-
-      rd.courts.forEach((ct, cidx)=>{
-        const cv = document.createElement('div'); cv.className='court';
-        const isSingle = ct[0].length===1 && ct[1].length===1;
-        cv.innerHTML = `<div class="tiny">Terrain ${cidx+1}${isSingle? ' <span class="label-single">SIMPLE</span>':''}</div>`;
-        const teams = document.createElement('div'); teams.className='teams';
-        teams.appendChild(teamEl(ct[0]));
-        const vs = document.createElement('div'); vs.style.textAlign='center'; vs.textContent='vs'; teams.appendChild(vs);
-        teams.appendChild(teamEl(ct[1]));
-        cv.appendChild(teams);
-        box.appendChild(cv);
-      });
-
-      if(rd.byes && rd.byes.length){
-        const by = document.createElement('div'); by.className='tiny bye';
-        by.textContent = 'Repos : ' + rd.byes.join(', ');
-        box.appendChild(by);
-      }
-
-      wrap.appendChild(box);
-    });
-  }
-
-  function teamEl(pair){
-    const elv = document.createElement('div'); elv.className='team';
-    pair.forEach(n=>{
-      const p = state.players.find(x=>x.name===n);
-      const badge = document.createElement('div'); badge.className='name';
-      const dot = document.createElement('span'); dot.className = 'dot ' + (p && p.color==='orange'?'orange': (p && p.color==='green'?'green':'') );
-      badge.appendChild(dot);
-      const t = document.createTextNode(' '+n);
-      badge.appendChild(t);
-      elv.appendChild(badge);
-    });
-    return elv;
-  }
-
-  // --- PWA minimal install banner ---
-  let deferredPrompt=null; window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt=e; });
-  function pwaInstall(){ if(deferredPrompt){ deferredPrompt.prompt(); deferredPrompt.userChoice.finally(()=> deferredPrompt=null ); } else { alert("Sur iPhone : partages > 'Sur l'écran d'accueil'
-Sur Android/Chrome : menu ⋮ > 'Ajouter à l'écran d'accueil'"); } }
-
-  // --- Events ---
-  el('add').onclick = ()=>{
-    const name = el('name').value.trim(); const color = el('color').value;
-    if(!name) return;
-    if(state.players.some(p=>p.name.toLowerCase()===name.toLowerCase())){ alert('Nom déjà dans la liste.'); return; }
-    state.players.push({name, color}); el('name').value=''; renderPlayers();
-  };
-  el('save').onclick = save; el('load').onclick = load; el('clear').onclick = clearAll;
-
-  el('draw').onclick = ()=>{
-    state.byesCount = new Map();
-    const n = parseInt(el('rounds').value||'4',10);
-    const maxC = Math.max(1, Math.min(7, parseInt(el('maxcourts').value||'7',10)));
-    const allowSingles = el('singles').checked;
-    const res = drawOnce(n, maxC, allowSingles);
-    state.lastResults = res;
-    renderResults(res);
-  };
-
-  el('reshuffle').onclick = ()=>{
-    if(!state.players.length){ alert('Ajoutez des joueurs d’abord.'); return; }
-    if(!state.lastResults){ el('draw').click(); return; }
-    const n = parseInt(el('rounds').value||'4',10);
-    const maxC = Math.max(1, Math.min(7, parseInt(el('maxcourts').value||'7',10)));
-    const allowSingles = el('singles').checked;
-    const res = drawOnce(n, maxC, allowSingles);
-    state.lastResults = res; renderResults(res);
-  };
-
-  el('export').onclick = pwaInstall;
-
-  // Load any saved players at start
-  load();
-  </script>
-
-  <!-- Minimal PWA manifest/service worker for offline (optional, inline for simplicity) -->
-  <link rel="manifest" href="data:application/manifest+json,{
-  \"name\": \"Tournoi Salade\",
-  \"short_name\": \"Salade\",
-  \"start_url\": \".\",
-  \"display\": \"standalone\",
-  \"background_color\": \"#0f172a\",
-  \"theme_color\": \"#22d3ee\",
-  \"icons\": []
-} ">
-  <script>
-  if('serviceWorker' in navigator){
-    const sw = `self.addEventListener('install',e=>{e.waitUntil(caches.open('salade-v2').then(c=>c.addAll(['./'])))});
-self.addEventListener('fetch',e=>{e.respondWith(caches.match(e.request).then(r=>r||fetch(e.request)))})`;
-    const blob = new Blob([sw],{type:'text/javascript'});
-    const url = URL.createObjectURL(blob);
-    navigator.serviceWorker.register(url);
-  }
-  </script>
+}
+</script>
 </body>
 </html>
